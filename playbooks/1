@@ -1,0 +1,33 @@
+---
+- name: Software Discovery
+  hosts: all
+  gather_facts: true
+
+  tasks:
+
+    - name: Mostrar sistema operativo
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "SO: {{ ansible_distribution }}"
+          - "Version: {{ ansible_distribution_version }}"
+
+    - name: Obtener paquetes instalados Debian
+      shell: dpkg-query -W -f='${Package}\n'
+      register: packages
+      changed_when: false
+      when: ansible_os_family == "Debian"
+
+    - name: Contar paquetes
+      debug:
+        msg: "Paquetes instalados: {{ packages.stdout_lines | length }}"
+      when: packages.stdout_lines is defined
+
+    - name: Obtener servicios activos
+      shell: systemctl list-units --type=service --state=running --no-legend
+      register: services
+      changed_when: false
+
+    - name: Mostrar número de servicios
+      debug:
+        msg: "Servicios activos: {{ services.stdout_lines | length }}"
