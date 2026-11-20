@@ -5,12 +5,12 @@
 
   tasks:
 
-    - name: Comprobar Nmap
+    - name: Verificar nmap
       command: which nmap
       register: nmap
       changed_when: false
       failed_when: false
 
-    - name: Mostrar Nmap
+    - name: Mostrar resultado
       debug:
         var: nmap.stdout
