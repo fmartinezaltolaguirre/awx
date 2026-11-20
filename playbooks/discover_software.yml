@@ -1,33 +1,79 @@
 ---
-- name: Software Discovery
+- name: Discovery and Software Inventory
   hosts: all
   gather_facts: true
+  become: true
+
+  vars:
+    report_dir: "/tmp/software_inventory"
 
   tasks:
 
-    - name: Mostrar sistema operativo
-      debug:
-        msg:
-          - "Host: {{ inventory_hostname }}"
-          - "SO: {{ ansible_distribution }}"
-          - "Version: {{ ansible_distribution_version }}"
+  ##################################################################
+  # PREPARACION
+  ##################################################################
 
-    - name: Obtener paquetes instalados Debian
-      shell: dpkg-query -W -f='${Package}\n'
+    - name: Crear directorio de informes
+      file:
+        path: "{{ report_dir }}"
+        state: directory
+        mode: "0755"
+
+  ##################################################################
+  # SISTEMA
+  ##################################################################
+
+    - name: Obtener fecha de escaneo
+      set_fact:
+        discovery_timestamp: "{{ ansible_date_time.iso8601 }}"
+
+    - name: Construir inventario base
+      set_fact:
+        software_inventory:
+          discovery:
+            timestamp: "{{ discovery_timestamp }}"
+          host:
+            hostname: "{{ ansible_hostname }}"
+            fqdn: "{{ ansible_fqdn }}"
+            inventory_name: "{{ inventory_hostname }}"
+            ip: "{{ ansible_default_ipv4.address | default('N/A') }}"
+          operating_system:
+            distribution: "{{ ansible_distribution }}"
+            version: "{{ ansible_distribution_version }}"
+            family: "{{ ansible_os_family }}"
+            kernel: "{{ ansible_kernel }}"
+            architecture: "{{ ansible_architecture }}"
+          hardware:
+            cpu_vcpus: "{{ ansible_processor_vcpus | default(0) }}"
+            memory_mb: "{{ ansible_memtotal_mb | default(0) }}"
+          virtualization:
+            role: "{{ ansible_virtualization_role | default('unknown') }}"
+            type: "{{ ansible_virtualization_type | default('unknown') }}"
+
+  ##################################################################
+  # PAQUETES
+  ##################################################################
+
+    - name: Obtener paquetes Debian
+      shell: dpkg-query -W -f='${Package}|${Version}\n'
       register: packages
       changed_when: false
       when: ansible_os_family == "Debian"
 
-    - name: Contar paquetes
-      debug:
-        msg: "Paquetes instalados: {{ packages.stdout_lines | length }}"
-      when: packages.stdout_lines is defined
+    - name: Guardar paquetes
+      copy:
+        dest: "{{ report_dir }}/packages.csv"
+        content: "{{ packages.stdout }}"
+      when: packages.stdout is defined
+
+    - name: Contabilizar paquetes
+      set_fact:
+        package_count: "{{ packages.stdout_lines | default([]) | length }}"
+
+  ##################################################################
+  # SERVICIOS
+  ##################################################################
 
     - name: Obtener servicios activos
-      shell: systemctl list-units --type=service --state=running --no-legend
-      register: services
-      changed_when: false
-
-    - name: Mostrar número de servicios
-      debug:
-        msg: "Servicios activos: {{ services.stdout_lines | length }}"
+      shell: |
+        systemctl list
