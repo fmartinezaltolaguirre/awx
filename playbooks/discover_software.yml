@@ -2,78 +2,184 @@
 - name: Discovery and Software Inventory
   hosts: all
   gather_facts: true
-  become: true
 
   vars:
     report_dir: "/tmp/software_inventory"
 
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
   tasks:
 
-  ##################################################################
-  # PREPARACION
-  ##################################################################
+    #################################################################
+    # PREPARACION
+    #################################################################
 
     - name: Crear directorio de informes
       file:
         path: "{{ report_dir }}"
         state: directory
         mode: "0755"
+      failed_when: false
 
-  ##################################################################
-  # SISTEMA
-  ##################################################################
+    #################################################################
+    # DIAGNOSTICO DEL ENTORNO
+    #################################################################
 
-    - name: Obtener fecha de escaneo
+    - name: Mostrar entorno detectado
+      debug:
+        msg:
+          - "Host={{ inventory_hostname }}"
+          - "Hostname={{ ansible_hostname }}"
+          - "SO={{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel={{ ansible_kernel }}"
+          - "Virtualizacion={{ ansible_virtualization_type | default('N/A') }}"
+
+    #################################################################
+    # FECHA DE DESCUBRIMIENTO
+    #################################################################
+
+    - name: Registrar fecha de descubrimiento
       set_fact:
         discovery_timestamp: "{{ ansible_date_time.iso8601 }}"
 
-    - name: Construir inventario base
+    #################################################################
+    # INVENTARIO BASE
+    #################################################################
+
+    - name: Crear estructura CMDB
       set_fact:
         software_inventory:
           discovery:
             timestamp: "{{ discovery_timestamp }}"
+
           host:
-            hostname: "{{ ansible_hostname }}"
-            fqdn: "{{ ansible_fqdn }}"
             inventory_name: "{{ inventory_hostname }}"
+            hostname: "{{ ansible_hostname }}"
+            fqdn: "{{ ansible_fqdn | default('N/A') }}"
             ip: "{{ ansible_default_ipv4.address | default('N/A') }}"
+
           operating_system:
             distribution: "{{ ansible_distribution }}"
             version: "{{ ansible_distribution_version }}"
             family: "{{ ansible_os_family }}"
             kernel: "{{ ansible_kernel }}"
             architecture: "{{ ansible_architecture }}"
+
           hardware:
             cpu_vcpus: "{{ ansible_processor_vcpus | default(0) }}"
             memory_mb: "{{ ansible_memtotal_mb | default(0) }}"
-          virtualization:
-            role: "{{ ansible_virtualization_role | default('unknown') }}"
-            type: "{{ ansible_virtualization_type | default('unknown') }}"
 
-  ##################################################################
-  # PAQUETES
-  ##################################################################
+          virtualization:
+            type: "{{ ansible_virtualization_type | default('unknown') }}"
+            role: "{{ ansible_virtualization_role | default('unknown') }}"
+
+    #################################################################
+    # PAQUETES
+    #################################################################
 
     - name: Obtener paquetes Debian
       shell: dpkg-query -W -f='${Package}|${Version}\n'
       register: packages
       changed_when: false
+      failed_when: false
       when: ansible_os_family == "Debian"
 
-    - name: Guardar paquetes
-      copy:
-        dest: "{{ report_dir }}/packages.csv"
-        content: "{{ packages.stdout }}"
-      when: packages.stdout is defined
+    - name: Obtener paquetes RPM
+      shell: rpm -qa
+      register: rpm_packages
+      changed_when: false
+      failed_when: false
+      when: ansible_os_family == "RedHat"
 
-    - name: Contabilizar paquetes
+    - name: Calcular numero de paquetes
       set_fact:
-        package_count: "{{ packages.stdout_lines | default([]) | length }}"
+        package_count: >-
+          {{
+            (
+              packages.stdout_lines
+              | default(rpm_packages.stdout_lines | default([]))
+            ) | length
+          }}
 
-  ##################################################################
-  # SERVICIOS
-  ##################################################################
+    - name: Guardar inventario de paquetes
+      copy:
+        dest: "{{ report_dir }}/packages.txt"
+        content: |
+          {% if packages.stdout is defined %}
+          {{ packages.stdout }}
+          {% elif rpm_packages.stdout is defined %}
+          {{ rpm_packages.stdout }}
+          {% else %}
+          No disponible
+          {% endif %}
+      failed_when: false
+
+    #################################################################
+    # SERVICIOS
+    #################################################################
 
     - name: Obtener servicios activos
       shell: |
-        systemctl list
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl list-units --type=service --state=running --no-legend
+        else
+          echo "systemctl no disponible"
+        fi
+      register: services
+      changed_when: false
+      failed_when: false
+
+    #################################################################
+    # PROCESOS
+    #################################################################
+
+    - name: Obtener procesos
+      shell: ps aux
+      register: processes
+      changed_when: false
+      failed_when: false
+
+    #################################################################
+    # PUERTOS
+    #################################################################
+
+    - name: Obtener puertos abiertos
+      shell: |
+        if command -v ss >/dev/null 2>&1; then
+          ss -tulpn
+        elif command -v netstat >/dev/null 2>&1; then
+          netstat -tulpn
+        else
+          echo "No disponible"
+        fi
+      register: ports
+      changed_when: false
+      failed_when: false
+
+    #################################################################
+    # PYTHON
+    #################################################################
+
+    - name: Version Python
+      shell: python3 --version
+      register: python_version
+      changed_when: false
+      failed_when: false
+
+    #################################################################
+    # JAVA
+    #################################################################
+
+    - name: Version Java
+      shell: java -version 2>&1 | head -1
+      register: java_version
+      changed_when: false
+      failed_when: false
+
+    #################################################################
+    # GIT
+    #################################################################
+
+    - name: Version Git
+      shell: git --
