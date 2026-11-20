@@ -15,4 +15,3 @@
           kernel: "{{ ansible_kernel }}"
           cpu: "{{ ansible_processor_vcpus }}"
           memoria: "{{ ansible_memtotal_mb }}"
-          ip: "{{ ansible_default_ipv4.address }}"
