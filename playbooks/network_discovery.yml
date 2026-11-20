@@ -1,0 +1,16 @@
+---
+- name: Network Discovery
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+
+    - name: Comprobar Nmap
+      command: which nmap
+      register: nmap
+      changed_when: false
+      failed_when: false
+
+    - name: Mostrar Nmap
+      debug:
+        var: nmap.stdout
