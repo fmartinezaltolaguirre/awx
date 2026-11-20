@@ -5,16 +5,73 @@
 
   tasks:
 
-    - name: Resumen ejecutivo
+    - name: Obtener paquetes instalados
+      package_facts:
+        manager: auto
+      ignore_errors: true
+
+    - name: Obtener servicios
+      service_facts:
+      ignore_errors: true
+
+    - name: Obtener versión Python
+      command: python3 --version
+      register: python_version
+      changed_when: false
+      failed_when: false
+
+    - name: Obtener hostname
+      command: hostname
+      register: hostname_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Resumen Ejecutivo
       debug:
         msg:
-          hostname: "{{ ansible_hostname | default('N/A') }}"
+          hostname: "{{ ansible_hostname | default(hostname_cmd.stdout | default('N/A')) }}"
           fqdn: "{{ ansible_fqdn | default('N/A') }}"
           sistema_operativo: "{{ ansible_distribution | default('N/A') }}"
-          version: "{{ ansible_distribution_version | default('N/A') }}"
+          version_so: "{{ ansible_distribution_version | default('N/A') }}"
           kernel: "{{ ansible_kernel | default('N/A') }}"
           arquitectura: "{{ ansible_architecture | default('N/A') }}"
-          cpus: "{{ ansible_processor_vcpus | default('N/A') }}"
+          cpus: "{{ ansible_processor_vcpus | default(ansible_processor_count | default('N/A')) }}"
           memoria_mb: "{{ ansible_memtotal_mb | default('N/A') }}"
+          bios: "{{ ansible_bios_version | default('N/A') }}"
           virtualizacion: "{{ ansible_virtualization_type | default('N/A') }}"
           ipv4: "{{ ansible_all_ipv4_addresses | default([]) }}"
+          ipv6: "{{ ansible_all_ipv6_addresses | default([]) }}"
+          python: "{{ python_version.stdout | default('No detectado') }}"
+
+    - name: Información de discos
+      debug:
+        msg: "{{ ansible_mounts | default([]) }}"
+
+    - name: Interfaces detectadas
+      debug:
+        msg: "{{ ansible_interfaces | default([]) }}"
+
+    - name: Servicios activos
+      debug:
+        msg: "{{ ansible_facts.services.keys() | list }}"
+      when: ansible_facts.services is defined
+
+    - name: Contenedores Docker
+      command: docker ps --format '{{ "{{.Names}}" }}'
+      register: docker_info
+      changed_when: false
+      failed_when: false
+
+    - name: Mostrar Docker
+      debug:
+        msg: "{{ docker_info.stdout_lines | default([]) }}"
+
+    - name: Kubernetes Nodes
+      command: kubectl get nodes -o wide
+      register: k8s_nodes
+      changed_when: false
+      failed_when: false
+
+    - name: Mostrar nodos Kubernetes
+      debug:
+        msg: "{{ k8s_nodes.stdout_lines | default([]) }}"
